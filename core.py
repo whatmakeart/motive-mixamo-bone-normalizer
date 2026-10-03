@@ -1,4 +1,4 @@
-"""Version 1: Normalize SELECTED Motive / OptiTrack / Mixamo armatures.
+"""Version 1.1.0: Normalize SELECTED Motive / OptiTrack / Mixamo armatures.
 
 Import the FBXs, select their armature objects, open this file in Blender's
 Text Editor, and click Run Script. No Rokoko Source / Target selection is
