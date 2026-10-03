@@ -1,32 +1,16 @@
-# Motive / Mixamo Bone Normalizer 1.1.0
+# Motive / Mixamo Bone Normalizer 1.1.1
 
-Install the ZIP without extracting it: Edit > Preferences > Add-ons > menu
-at the upper right > Install from Disk. Choose the ZIP, then enable
-**Motive / Mixamo Bone Normalizer**. 
+## Install
 
-Import the FBXs, select the armature objects in the viewport, press **N**, open
-the **Retarget** tab, and click **Normalize Selected Armatures**. This works
-with one or several rigs. In Rokoko, select Source and Target and rebuild the
-bone list. 
+In Edit > Preferences > Get Extensions, open the menu at the upper right, choose Install from Disk, select the ZIP, and enable the extension. The manifest and both Python files are included at the ZIP's root.
 
-Armature object names stay unchanged. Bone names become prefix-free Mixamo
-names, such as Hips, LeftForeArm, RightToeBase, and LeftHandIndex1. Animation,
-mesh vertex groups, constraints, drivers, and bone parenting are preserved.
-Shared armature data and actions are isolated from unselected objects when
-necessary. Bones are not added or removed.
+## Use
 
-**Preview Names** opens a wide, scrollable table showing the armature,
-original bone name, and proposed name for every bone, including unchanged
-names. The same list stays visible in the Retarget sidebar. The list's filter
-can search for an armature, old name, or new name. Preview does not rename
-bones or change Rokoko's matching integration.
-The full report is also stored in the Blender Text Editor as **Bone
-Normalization Report**. The original-to-new names are backed up in a JSON
-Text datablock within the .blend file. Normalization supports Undo.
+1. Import the FBX files and select their armature objects in the viewport.
+2. Press N, open Retarget, and click Preview Names to see every original and proposed name in a scrollable table. Preview does not rename bones.
+3. Click Normalize Selected Armatures. Armature object names stay unchanged.
+4. In Rokoko, select Source and Target and build or rebuild the bone list.
 
-With the normalizer enabled, Rokoko's Build / Rebuild Bone List uses exact
-counterpart names when both Source and Target have been normalized. LeftArm
-matches LeftArm, and LeftShoulder matches LeftShoulder, even if saved Rokoko
-aliases were incorrect. Numbered neck joints match their same-number joint
-only; absent counterparts stay blank. This also applies to other unmatched
-joints, including extra spines. 
+Keep this extension enabled for exact matching between normalized rigs. Missing counterparts stay blank, and bones are not added or removed. Neck1 and Neck2 retain their numbers; arms and shoulders remain separate. Finger ends use their own side and finger's fourth bone. A 3D suffix denotes an end only when a separate third finger joint exists above it.
+
+Normalization preserves animation, mesh bindings, constraints, drivers, bone parents, transforms, and rest poses. Shared armatures and actions are isolated from unselected objects. Ambiguous duplicate names are reported and skipped. Reference poses and scale still need to suit retargeting. The operation supports Undo and stores a name backup and full report in the Blender Text Editor. The file permission is used to save Rokoko's custom bone naming schemes when that add-on is loaded.

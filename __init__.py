@@ -1,16 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Installable interface for selected-armature Motive / Mixamo normalization."""
 
-bl_info = {
-    "name": "Motive / Mixamo Bone Normalizer",
-    "author": "Blender Vibes",
-    "version": (1, 1, 0),
-    "blender": (5, 2, 0),
-    "location": "3D Viewport > Sidebar > Retarget",
-    "description": "Normalize selected OptiTrack/Motive and Mixamo bone names for retargeting",
-    "category": "Rigging",
-}
-
 import textwrap
 import bpy
 from bpy.app.handlers import persistent

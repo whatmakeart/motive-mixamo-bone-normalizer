@@ -1,4 +1,5 @@
-"""Version 1.1.0: Normalize SELECTED Motive / OptiTrack / Mixamo armatures.
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Version 1.1.1: Normalize SELECTED Motive / OptiTrack / Mixamo armatures.
 
 Import the FBXs, select their armature objects, open this file in Blender's
 Text Editor, and click Run Script. No Rokoko Source / Target selection is
@@ -22,6 +23,7 @@ Numbered neck joints keep their numbers. For two normalized rigs, Rokoko's
 bone list uses exact counterpart names; missing counterparts stay blank.
 """
 
+import ast
 import json
 import re
 import sys
@@ -33,7 +35,8 @@ DRY_RUN = False
 REGISTER_ROKOKO_EXTRA_NAMES = True
 SPINE = "__spine_chain__"
 NORMALIZED_RIG_KEY = "_mocap_normalizer_names_version"
-NORMALIZER_VERSION = 5
+NORMALIZER_VERSION = 6
+BONE_PATH_RE = re.compile(r'''((?:pose\.)?bones)\[("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\]''')
 
 
 def compact(name: str) -> str:
@@ -241,36 +244,41 @@ def nla_strips(animation_data):
         yield from walk(track.strips)
 
 
-def iter_fcurves(action, slot=None):
-    """Safely traverse both legacy single-action F-curves and modern slotted action channel bags."""
-    if action is None:
-        return
-    seen = set()
+def action_is_layered(action):
+    return bool(getattr(action, "is_action_layered", False) or getattr(action, "layers", ()))
 
-    # Legacy & Direct Curves
-    for curve in getattr(action, "fcurves", ()):
-        ptr = curve.as_pointer()
-        if ptr not in seen:
-            seen.add(ptr)
-            yield curve
 
-    # Blender 4.4+ / 5.x Slotted Layered Actions
+def iter_channelbags(action, slot=None):
+    slot_handle = getattr(slot, "handle", None)
     for layer in getattr(action, "layers", ()):
         for strip in getattr(layer, "strips", ()):
             for bag in getattr(strip, "channelbags", ()):
-                # If slot is provided, match either slot object or handle
-                if slot is not None:
-                    bag_slot = getattr(bag, "slot", None)
-                    slot_handle = getattr(slot, "handle", slot)
-                    if bag_slot is not None and bag_slot != slot:
-                        continue
-                    if getattr(bag, "slot_handle", None) is not None and bag.slot_handle != slot_handle:
-                        continue
-                for curve in getattr(bag, "fcurves", ()):
-                    ptr = curve.as_pointer()
-                    if ptr not in seen:
-                        seen.add(ptr)
-                        yield curve
+                if slot_handle is not None and bag.slot_handle != slot_handle:
+                    continue
+                yield bag
+
+
+def iter_fcurves(action, slot=None):
+    """Read layered actions by slot; never use their first-slot legacy facade."""
+    if action is None:
+        return
+    seen = set()
+    collections = ([bag.fcurves for bag in iter_channelbags(action, slot)]
+                   if action_is_layered(action) else [getattr(action, "fcurves", ())])
+    for curves in collections:
+        for curve in curves:
+            ptr = curve.as_pointer()
+            if ptr not in seen:
+                seen.add(ptr)
+                yield curve
+
+
+def iter_action_groups(action, slot=None):
+    if action_is_layered(action):
+        for bag in iter_channelbags(action, slot):
+            yield from bag.groups
+    else:
+        yield from getattr(action, "groups", ())
 
 
 def copy_action_if_shared(holder):
@@ -278,19 +286,28 @@ def copy_action_if_shared(holder):
     if not action or action.users <= 1:
         return False
 
+    # Capture the slot before assigning the copy: action assignment can reset it.
+    slot = getattr(holder, "action_slot", None)
+    slot_identifier = getattr(slot, "identifier", None)
+    slot_handle = getattr(slot, "handle", None)
     replacement = action.copy()
     holder.action = replacement
-
-    # Handle slotted action assignment in modern Blender
-    slot = getattr(holder, "action_slot", None)
-    if slot:
-        slot_name = getattr(slot, "name", None) or getattr(slot, "identifier", None)
-        if slot_name:
-            for candidate in getattr(replacement, "slots", ()):
-                candidate_name = getattr(candidate, "name", None) or getattr(candidate, "identifier", None)
-                if candidate_name == slot_name:
+    if slot_identifier is not None:
+        for candidate in replacement.slots:
+            if candidate.identifier == slot_identifier:
+                holder.action_slot = candidate
+                break
+        else:
+            for candidate in replacement.slots:
+                if candidate.handle == slot_handle:
                     holder.action_slot = candidate
                     break
+            else:
+                holder.action = action
+                holder.action_slot = slot
+                raise RuntimeError("The copied animation has no matching action slot.")
+    elif action_is_layered(replacement):
+        holder.action_slot = None
     return True
 
 
@@ -308,13 +325,18 @@ def prepare_animation(plan):
             copies += int(copy_action_if_shared(holder))
         for holder in holders:
             action = getattr(holder, "action", None)
-            if not action or action.as_pointer() in seen:
+            if not action:
                 continue
-            seen.add(action.as_pointer())
             active_slot = getattr(holder, "action_slot", None)
+            if action_is_layered(action) and active_slot is None:
+                continue
+            key = (action.as_pointer(), getattr(active_slot, "handle", None))
+            if key in seen:
+                continue
+            seen.add(key)
             for curve in iter_fcurves(action, slot=active_slot):
                 snapshots.append((curve, curve.data_path))
-            for group in getattr(action, "groups", ()):
+            for group in iter_action_groups(action, slot=active_slot):
                 if group.name in plan["changed"]:
                     group.name = plan["changed"][group.name]
 
@@ -324,14 +346,11 @@ def prepare_animation(plan):
 def remap_path(path: str, names: dict) -> str:
     """Remap bone paths handling both single and double quoted data_paths."""
     def replace(match):
-        prefix = match.group(1)
-        raw_name = match.group(2)
-        # Parse unescaped bone name safely
-        old = json.loads(f'"{raw_name}"') if not (raw_name.startswith('"') or raw_name.startswith("'")) else json.loads(raw_name)
+        old = ast.literal_eval(match.group(2))
         new = names.get(old, old)
-        return f'{prefix}["{json.dumps(new, ensure_ascii=False)[1:-1]}"]'
+        return match.group(1) + "[" + json.dumps(new, ensure_ascii=False) + "]"
 
-    return re.sub(r'((?:pose\.)?bones)\[["\'](.*?)["\']\]', replace, path)
+    return BONE_PATH_RE.sub(replace, path)
 
 
 def meshes_for(plan, bpy):
@@ -364,27 +383,26 @@ def apply_plan(plan, bpy):
         plan["data"] = isolated
 
     snapshots, copies = prepare_animation(plan)
+    mapped_paths = [(curve, remap_path(path, plan["changed"])) for curve, path in snapshots]
     temporary = []
     token = uuid.uuid4().hex[:12]
 
     # Assign temporary unique names to avoid naming collisions / auto-suffixes
     for index, (old, new) in enumerate(plan["changed"].items()):
         bone = plan["data"].bones.get(old)
-        if bone:
-            temp = f"__mocap_{token}_{index}"
-            bone.name = temp
-            temporary.append((bone, new))
+        if bone is None:
+            raise RuntimeError(f"Bone disappeared before normalization: {old}")
+        temp = f"__mocap_{token}_{index}"
+        bone.name = temp
+        temporary.append((bone, new))
 
     for bone, new in temporary:
         bone.name = new
         if bone.name != new:
             raise RuntimeError(f"Blender could not assign the requested bone name: {new}")
 
-    for curve, original_path in snapshots:
-        try:
-            curve.data_path = remap_path(original_path, plan["changed"])
-        except Exception:
-            pass
+    for curve, mapped_path in mapped_paths:
+        curve.data_path = mapped_path
 
     for obj in plan["objects"]:
         for prop in obj.bl_rna.properties:
@@ -428,11 +446,13 @@ def exact_retarget_matches(source, target):
     if action is None:
         return {}
     slot = getattr(data, "action_slot", None)
+    if action_is_layered(action) and slot is None:
+        return {}
     animated = {}
     for curve in iter_fcurves(action, slot=slot):
-        match = re.match(r'pose\.bones\[["\'](.*?)["\']\]', curve.data_path)
-        if match:
-            bone_name = match.group(1)
+        match = BONE_PATH_RE.match(curve.data_path)
+        if match and match.group(1) == "pose.bones":
+            bone_name = ast.literal_eval(match.group(2))
             if source.pose and source.pose.bones.get(bone_name) is not None:
                 animated[bone_name] = None
     pairs = {}
@@ -592,7 +612,7 @@ def normalize_selected(context, dry_run=DRY_RUN, register_names=REGISTER_ROKOKO_
     rig_count = sum(len(plan["objects"]) for plan in plans)
     summary = f"{rig_count} armatures; {changes} bone names {'planned' if dry_run else 'changed'}; {len(skipped)} skipped."
     lines = [
-        "MOTIVE / MIXAMO BONE NORMALIZATION v5",
+        "MOTIVE / MIXAMO BONE NORMALIZATION 1.1.1",
         summary,
         "Armature object names, rest poses, bone counts and transforms are preserved.",
         f"Shared actions copied: {copies}",

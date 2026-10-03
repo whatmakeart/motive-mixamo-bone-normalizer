@@ -1,11 +1,14 @@
 schema_version = "1.0.0"
 
 id = "mocap_bone_normalizer"
-version = "1.1.0"
+version = "1.1.1"
 name = "Motive / Mixamo Bone Normalizer"
 tagline = "Normalize OptiTrack/Motive and Mixamo bone names for retargeting"
 maintainer = "Blender Vibes"
 type = "add-on"
 
 blender_version_min = "4.2.0"
-license = ["GPL-3.0-or-later"]
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Save Rokoko custom bone naming schemes"
