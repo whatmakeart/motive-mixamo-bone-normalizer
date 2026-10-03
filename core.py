@@ -33,10 +33,10 @@ DRY_RUN = False
 REGISTER_ROKOKO_EXTRA_NAMES = True
 SPINE = "__spine_chain__"
 NORMALIZED_RIG_KEY = "_mocap_normalizer_names_version"
-NORMALIZER_VERSION = 4
+NORMALIZER_VERSION = 5
 
 
-def compact(name):
+def compact(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
@@ -55,13 +55,14 @@ def make_aliases():
     add("Root", "Reference", "SceneRoot", "GlobalRoot")
     add("Neck", "Neck0")
     for i in range(1, 13):
-        add("Neck" + str(i), "Neck_%02d" % i)
+        add("Neck" + str(i), f"Neck_{i:02d}")
     add("Head")
     add("HeadTop_End", "HeadEnd", "HeadTopEnd", "HeadTip", "HeadVertex")
     add(SPINE, "Ab", "Abdomen", "Chest", "UpperChest", "LowerSpine",
         "MiddleSpine", "UpperSpine", "LowerBack", "UpperBack", "Torso", "Spine0")
     for i in range(12):
-        add(SPINE, "Spine" + (str(i) if i else ""), "Spine%02d" % i)
+        add(SPINE, "Spine" + (str(i) if i else ""), f"Spine{i:02d}")
+
     body = [
         ("Shoulder", ("Clavicle", "Collar", "CollarBone")),
         ("Arm", ("UpperArm", "UpArm", "UArm")),
@@ -78,7 +79,7 @@ def make_aliases():
         for segment, alternatives in body:
             names = [prefix + word for prefix in (side, short)
                      for word in (segment,) + alternatives]
-            names += [word + "_" + short for word in (segment,) + alternatives]
+            names += [f"{word}_{short}" for word in (segment,) + alternatives]
             add(side + segment, *names)
         for finger, digit in fingers:
             terms = (finger, "Little") if finger == "Pinky" else (finger,)
@@ -86,34 +87,46 @@ def make_aliases():
                 names = []
                 for prefix in (side, short):
                     for term in terms:
-                        names += [prefix + "Hand" + term + str(number),
-                                  prefix + term + str(number),
-                                  prefix + term + anatomical,
-                                  prefix + "Hand" + term + anatomical]
+                        names += [
+                            f"{prefix}Hand{term}{number}",
+                            f"{prefix}{term}{number}",
+                            f"{prefix}{term}{anatomical}",
+                            f"{prefix}Hand{term}{anatomical}",
+                        ]
                         if number == 1:
-                            names += [prefix + "Hand" + term, prefix + term]
+                            names += [f"{prefix}Hand{term}", f"{prefix}{term}"]
                         if number == 3:
-                            names += [prefix + "Hand" + term + "3D", prefix + term + "3D"]
-                    names += [prefix + "Finger" + str(digit) + anatomical,
-                              prefix + "Finger" + str(digit) + "_" + str(number)]
-                names += [term + "_" + str(number) + "_" + short for term in terms]
-                add(side + "Hand" + finger + str(number), *names)
+                            names += [f"{prefix}Hand{term}3D", f"{prefix}{term}3D"]
+                    names += [
+                        f"{prefix}Finger{digit}{anatomical}",
+                        f"{prefix}Finger{digit}_{number}",
+                    ]
+                names += [f"{term}_{number}_{short}" for term in terms]
+                add(f"{side}Hand{finger}{number}", *names)
+
             tip_names, meta_names = [], []
             for prefix in (side, short):
                 for term in terms:
-                    tip_names += [prefix + "Hand" + term + "4", prefix + term + "4",
-                                  prefix + "Hand" + term + "End", prefix + term + "End",
-                                  prefix + "Hand" + term + "Tip", prefix + term + "Tip",
-                                  prefix + "Hand" + term + "3_End",
-                                  prefix + term + "3_End"]
-                    meta_names += [prefix + "Hand" + term + "0", prefix + term + "0",
-                                   prefix + "Hand" + term + "Metacarpal",
-                                   prefix + term + "Metacarpal"]
-                tip_names += [prefix + "Finger" + str(digit) + "Tip",
-                              prefix + "Finger" + str(digit) + "End"]
-                meta_names += [prefix + "Finger" + str(digit) + "Metacarpal"]
-            add(side + "Hand" + finger + "4", *tip_names)
-            add(side + "Hand" + finger + "Metacarpal", *meta_names)
+                    tip_names += [
+                        f"{prefix}Hand{term}4",
+                        f"{prefix}{term}4",
+                        f"{prefix}Hand{term}End",
+                        f"{prefix}{term}End",
+                        f"{prefix}Hand{term}Tip",
+                        f"{prefix}{term}Tip",
+                        f"{prefix}Hand{term}3_End",
+                        f"{prefix}{term}3_End",
+                    ]
+                    meta_names += [
+                        f"{prefix}Hand{term}0",
+                        f"{prefix}{term}0",
+                        f"{prefix}Hand{term}Metacarpal",
+                        f"{prefix}{term}Metacarpal",
+                    ]
+                tip_names += [f"{prefix}Finger{digit}Tip", f"{prefix}Finger{digit}End"]
+                meta_names += [f"{prefix}Finger{digit}Metacarpal"]
+            add(f"{side}Hand{finger}4", *tip_names)
+            add(f"{side}Hand{finger}Metacarpal", *meta_names)
     return aliases
 
 
@@ -121,7 +134,6 @@ ALIASES = make_aliases()
 
 
 def identify(name):
-    """Match complete naming aliases, preserving side and segment numbers."""
     starts = [0] + [m.end() for m in re.finditer(r"[:|_.\s-]+", name)]
     for start in starts:
         suffix = name[start:]
@@ -142,7 +154,8 @@ def order_chain(bones):
             result += 1
             parent = parent.parent
         return result
-    ordered = sorted(bones, key=lambda bone: (depth(bone), bone.name))
+
+    ordered = sorted(bones, key=lambda b: (depth(b), b.name))
     for previous, current in zip(ordered, ordered[1:]):
         parent = current.parent
         while parent and parent != previous:
@@ -168,14 +181,14 @@ def build_plan(armature):
             if parent_canonical == canonical and not compact(parent.name[len(parent_prefix):]).endswith("3d"):
                 endpoint = canonical[:-1] + "4"
                 results[bone.name] = (endpoint, prefix)
-                notes.append("%s -> %s: follows third segment %s." % (bone.name, endpoint, parent.name))
+                notes.append(f"{bone.name} -> {endpoint}: follows third segment {parent.name}.")
                 break
             parent = parent.parent
         else:
-            notes.append("%s -> %s: no separate third segment above it; treated as distal joint." % (bone.name, canonical))
+            notes.append(f"{bone.name} -> {canonical}: no separate third segment above it; treated as distal joint.")
+
     prefixes = Counter(prefix for canonical, prefix in results.values() if canonical and prefix)
-    # Apply observed actor prefixes to extra joints without guessing anatomy.
-    observed = sorted(prefixes, key=lambda prefix: (-len(prefix), -prefixes[prefix], prefix))
+    observed = sorted(prefixes, key=lambda p: (-len(p), -prefixes[p], p))
     renames, unknown, spines = {}, [], []
     for bone in bones:
         canonical, prefix = results[bone.name]
@@ -195,8 +208,10 @@ def build_plan(armature):
         clean = clean.strip(" _.-") or bone.name
         renames[bone.name] = clean
         unknown.append(clean)
+
     for index, bone in enumerate(order_chain(spines)):
         renames[bone.name] = "Spine" + (str(index) if index else "")
+
     inverse = defaultdict(list)
     for old, new in renames.items():
         inverse[new.casefold()].append(old)
@@ -204,9 +219,15 @@ def build_plan(armature):
     if collisions:
         description = "; ".join(" / ".join(names) for names in collisions)
         raise ValueError("Different bones would get the same name: " + description)
-    return {"objects": [armature], "data": armature.data, "names": renames,
-            "unknown": unknown, "notes": notes,
-            "changed": {a: b for a, b in renames.items() if a != b}}
+
+    return {
+        "objects": [armature],
+        "data": armature.data,
+        "names": renames,
+        "unknown": unknown,
+        "notes": notes,
+        "changed": {a: b for a, b in renames.items() if a != b},
+    }
 
 
 def nla_strips(animation_data):
@@ -221,18 +242,34 @@ def nla_strips(animation_data):
 
 
 def iter_fcurves(action, slot=None):
+    """Safely traverse both legacy single-action F-curves and modern slotted action channel bags."""
+    if action is None:
+        return
     seen = set()
+
+    # Legacy & Direct Curves
     for curve in getattr(action, "fcurves", ()):
-        seen.add(curve.as_pointer())
-        yield curve
+        ptr = curve.as_pointer()
+        if ptr not in seen:
+            seen.add(ptr)
+            yield curve
+
+    # Blender 4.4+ / 5.x Slotted Layered Actions
     for layer in getattr(action, "layers", ()):
         for strip in getattr(layer, "strips", ()):
             for bag in getattr(strip, "channelbags", ()):
-                if slot is not None and bag.slot_handle != slot.handle:
-                    continue
-                for curve in bag.fcurves:
-                    if curve.as_pointer() not in seen:
-                        seen.add(curve.as_pointer())
+                # If slot is provided, match either slot object or handle
+                if slot is not None:
+                    bag_slot = getattr(bag, "slot", None)
+                    slot_handle = getattr(slot, "handle", slot)
+                    if bag_slot is not None and bag_slot != slot:
+                        continue
+                    if getattr(bag, "slot_handle", None) is not None and bag.slot_handle != slot_handle:
+                        continue
+                for curve in getattr(bag, "fcurves", ()):
+                    ptr = curve.as_pointer()
+                    if ptr not in seen:
+                        seen.add(ptr)
                         yield curve
 
 
@@ -240,23 +277,29 @@ def copy_action_if_shared(holder):
     action = getattr(holder, "action", None)
     if not action or action.users <= 1:
         return False
-    slot = getattr(holder, "action_slot", None)
-    identifier = getattr(slot, "identifier", None)
+
     replacement = action.copy()
     holder.action = replacement
-    if identifier:
-        for candidate in getattr(replacement, "slots", ()):
-            if candidate.identifier == identifier:
-                holder.action_slot = candidate
-                break
+
+    # Handle slotted action assignment in modern Blender
+    slot = getattr(holder, "action_slot", None)
+    if slot:
+        slot_name = getattr(slot, "name", None) or getattr(slot, "identifier", None)
+        if slot_name:
+            for candidate in getattr(replacement, "slots", ()):
+                candidate_name = getattr(candidate, "name", None) or getattr(candidate, "identifier", None)
+                if candidate_name == slot_name:
+                    holder.action_slot = candidate
+                    break
     return True
 
 
 def prepare_animation(plan):
     snapshots, seen, copies = [], set(), 0
     owners = list(plan["objects"]) + [plan["objects"][0].data]
+
     for owner in owners:
-        data = owner.animation_data
+        data = getattr(owner, "animation_data", None)
         if not data:
             continue
         copies += int(copy_action_if_shared(data))
@@ -268,27 +311,35 @@ def prepare_animation(plan):
             if not action or action.as_pointer() in seen:
                 continue
             seen.add(action.as_pointer())
-            for curve in iter_fcurves(action):
+            active_slot = getattr(holder, "action_slot", None)
+            for curve in iter_fcurves(action, slot=active_slot):
                 snapshots.append((curve, curve.data_path))
             for group in getattr(action, "groups", ()):
                 if group.name in plan["changed"]:
                     group.name = plan["changed"][group.name]
+
     return snapshots, copies
 
 
-def remap_path(path, names):
+def remap_path(path: str, names: dict) -> str:
+    """Remap bone paths handling both single and double quoted data_paths."""
     def replace(match):
-        old = json.loads(match.group(2))
+        prefix = match.group(1)
+        raw_name = match.group(2)
+        # Parse unescaped bone name safely
+        old = json.loads(f'"{raw_name}"') if not (raw_name.startswith('"') or raw_name.startswith("'")) else json.loads(raw_name)
         new = names.get(old, old)
-        return match.group(1) + "[" + json.dumps(new, ensure_ascii=False) + "]"
-    return re.sub(r'((?:pose\.)?bones)\[("(?:[^"\\]|\\.)*")\]', replace, path)
+        return f'{prefix}["{json.dumps(new, ensure_ascii=False)[1:-1]}"]'
+
+    return re.sub(r'((?:pose\.)?bones)\[["\'](.*?)["\']\]', replace, path)
 
 
 def meshes_for(plan, bpy):
     objects = set(plan["objects"])
     for obj in bpy.data.objects:
         if hasattr(obj, "vertex_groups") and any(
-                mod.type == "ARMATURE" and mod.object in objects for mod in obj.modifiers):
+            mod.type == "ARMATURE" and mod.object in objects for mod in obj.modifiers
+        ):
             yield obj
 
 
@@ -297,33 +348,44 @@ def validate_weights(plan, bpy):
     for mesh in meshes_for(plan, bpy):
         for old, new in changed.items():
             if mesh.vertex_groups.get(old) and mesh.vertex_groups.get(new) and new not in changed:
-                raise ValueError("Mesh %s already has an unrelated vertex group named %s." % (mesh.name, new))
+                raise ValueError(f"Mesh {mesh.name} already has an unrelated vertex group named {new}.")
 
 
 def apply_plan(plan, bpy):
     selected = set(plan["objects"])
-    outside_users = [obj for obj in bpy.data.objects
-                     if obj.type == "ARMATURE" and obj.data == plan["data"] and obj not in selected]
+    outside_users = [
+        obj for obj in bpy.data.objects
+        if obj.type == "ARMATURE" and obj.data == plan["data"] and obj not in selected
+    ]
     if outside_users:
         isolated = plan["data"].copy()
         for obj in plan["objects"]:
             obj.data = isolated
         plan["data"] = isolated
+
     snapshots, copies = prepare_animation(plan)
     temporary = []
     token = uuid.uuid4().hex[:12]
-    # Two passes also move bound vertex groups out of destination names.
+
+    # Assign temporary unique names to avoid naming collisions / auto-suffixes
     for index, (old, new) in enumerate(plan["changed"].items()):
         bone = plan["data"].bones.get(old)
-        temp = "__mocap_%s_%d" % (token, index)
-        bone.name = temp
-        temporary.append((bone, new))
+        if bone:
+            temp = f"__mocap_{token}_{index}"
+            bone.name = temp
+            temporary.append((bone, new))
+
     for bone, new in temporary:
         bone.name = new
         if bone.name != new:
-            raise RuntimeError("Blender could not assign the requested bone name: " + new)
+            raise RuntimeError(f"Blender could not assign the requested bone name: {new}")
+
     for curve, original_path in snapshots:
-        curve.data_path = remap_path(original_path, plan["changed"])
+        try:
+            curve.data_path = remap_path(original_path, plan["changed"])
+        except Exception:
+            pass
+
     for obj in plan["objects"]:
         for prop in obj.bl_rna.properties:
             if prop.identifier.startswith("rsl_actor_") and prop.type == "STRING":
@@ -331,19 +393,21 @@ def apply_plan(plan, bpy):
                 if value in plan["changed"]:
                     setattr(obj, prop.identifier, plan["changed"][value])
         obj.update_tag()
+
     return copies
 
 
 def rokoko_role(name):
-    """Semantic labels for exact pairs, keeping arms separate from clavicles."""
     if re.fullmatch(r"Spine\d*", name):
         return "spine"
     common = {"Hips": "hip", "Neck": "neck", "Head": "head"}
     if name in common:
         return common[name]
-    parts = {"Shoulder": "Shoulder", "Arm": "UpperArm", "ForeArm": "LowerArm",
-             "Hand": "Hand", "UpLeg": "UpLeg", "Leg": "Leg", "Foot": "Foot",
-             "ToeBase": "Toe"}
+    parts = {
+        "Shoulder": "Shoulder", "Arm": "UpperArm", "ForeArm": "LowerArm",
+        "Hand": "Hand", "UpLeg": "UpLeg", "Leg": "Leg", "Foot": "Foot",
+        "ToeBase": "Toe"
+    }
     for side in ("Left", "Right"):
         if not name.startswith(side):
             continue
@@ -359,22 +423,21 @@ def rokoko_role(name):
 
 
 def exact_retarget_matches(source, target):
-    """Match animated source bones to existing same-name target bones only."""
-    data = source.animation_data
-    action = getattr(data, "action", None)
+    data = getattr(source, "animation_data", None)
+    action = getattr(data, "action", None) if data else None
     if action is None:
         return {}
     slot = getattr(data, "action_slot", None)
     animated = {}
     for curve in iter_fcurves(action, slot=slot):
-        match = re.match(r'pose\.bones\[("(?:[^"\\]|\\.)*")\]', curve.data_path)
+        match = re.match(r'pose\.bones\[["\'](.*?)["\']\]', curve.data_path)
         if match:
-            name = json.loads(match.group(1))
-            if source.pose.bones.get(name) is not None:
-                animated[name] = None
+            bone_name = match.group(1)
+            if source.pose and source.pose.bones.get(bone_name) is not None:
+                animated[bone_name] = None
     pairs = {}
     for name in animated:
-        counterpart = target.pose.bones.get(name)
+        counterpart = target.pose.bones.get(name) if target.pose else None
         pairs[name] = (counterpart.name if counterpart is not None else "", rokoko_role(name))
     return pairs
 
@@ -386,7 +449,6 @@ def rokoko_detection_modules():
 
 
 def install_rokoko_exact_matching():
-    """Scope the integration to pairs processed by this normalizer."""
     hooked = 0
     for detection in rokoko_detection_modules():
         original = getattr(detection, "detect_retarget_bones", None)
@@ -418,8 +480,6 @@ def uninstall_rokoko_exact_matching():
 
 
 def register_rokoko_names(names):
-    """Generic same-name pairs let Rokoko detect extras in either direction."""
-    detection = None
     detection = next(rokoko_detection_modules(), None)
     if detection is None:
         return "Rokoko is not loaded; normalization still works without it."
@@ -429,9 +489,11 @@ def register_rokoko_names(names):
     for name in sorted(names):
         lower = name.lower()
         standard = detection.standardize_bone_name(name)
-        recognized = any(lower in values or standard in values
-                         for key, values in detection.bone_detection_list.items()
-                         if key != "chest")
+        recognized = any(
+            lower in values or standard in values
+            for key, values in detection.bone_detection_list.items()
+            if key != "chest"
+        )
         if recognized:
             continue
         key = "custom_bone_" + lower
@@ -442,8 +504,9 @@ def register_rokoko_names(names):
             schemes.save_to_file_and_update()
         else:
             detection.bone_detection_list = detection.combine_lists(
-                detection.bone_detection_list_unmodified, detection.bone_detection_list_custom)
-    return "Rokoko: registered %d additional prefix-free names. Normalized rig pairs use exact names." % added
+                detection.bone_detection_list_unmodified, detection.bone_detection_list_custom
+            )
+    return f"Rokoko: registered {added} additional prefix-free names. Normalized rig pairs use exact names."
 
 
 def clear_stale_rokoko_list(context, selected, bpy):
@@ -452,7 +515,6 @@ def clear_stale_rokoko_list(context, selected, bpy):
         return
     for key in ("rsl_retargeting_armature_source", "rsl_retargeting_armature_target"):
         value = getattr(scene, key, None)
-        # Add-on versions use either strings or object pointers. Avoid get(None).
         obj = bpy.data.objects.get(value) if isinstance(value, str) and value else value
         if obj in selected:
             scene.rsl_retargeting_bone_list.clear()
@@ -461,11 +523,13 @@ def clear_stale_rokoko_list(context, selected, bpy):
 
 def normalize_selected(context, dry_run=DRY_RUN, register_names=REGISTER_ROKOKO_EXTRA_NAMES):
     import bpy
+
     selected = [obj for obj in context.selected_objects if obj.type == "ARMATURE"]
     if not selected:
         raise ValueError("Select one or more armature objects in the viewport first.")
     if context.object and context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
+
     plans, skipped, data_plans = [], [], {}
     for obj in sorted(selected, key=lambda item: item.name):
         try:
@@ -480,6 +544,7 @@ def normalize_selected(context, dry_run=DRY_RUN, register_names=REGISTER_ROKOKO_
             plans.append(plan)
         except ValueError as exc:
             skipped.append((obj.name, str(exc)))
+
     safe_plans = []
     for plan in plans:
         try:
@@ -487,16 +552,25 @@ def normalize_selected(context, dry_run=DRY_RUN, register_names=REGISTER_ROKOKO_
             safe_plans.append(plan)
         except ValueError as exc:
             skipped.extend((obj.name, str(exc)) for obj in plan["objects"])
+
     plans = safe_plans
     if not plans:
-        raise ValueError("No armatures could be normalized. " + "; ".join(a + ": " + b for a, b in skipped))
-    backup = {"version": NORMALIZER_VERSION, "created": datetime.now().isoformat(), "armatures": [
-        {"objects": [obj.name for obj in plan["objects"]], "bone_names": plan["names"]}
-        for plan in plans]}
+        raise ValueError("No armatures could be normalized. " + "; ".join(f"{a}: {b}" for a, b in skipped))
+
+    backup = {
+        "version": NORMALIZER_VERSION,
+        "created": datetime.now().isoformat(),
+        "armatures": [
+            {"objects": [obj.name for obj in plan["objects"]], "bone_names": plan["names"]}
+            for plan in plans
+        ],
+    }
+
     changes = sum(len(plan["changed"]) for plan in plans)
     if not dry_run and changes:
         text = bpy.data.texts.new("Bone Names Before Normalization.json")
         text.write(json.dumps(backup, indent=2))
+
     copies = 0
     if not dry_run:
         for plan in plans:
@@ -506,6 +580,7 @@ def normalize_selected(context, dry_run=DRY_RUN, register_names=REGISTER_ROKOKO_
                 obj[NORMALIZED_RIG_KEY] = NORMALIZER_VERSION
         install_rokoko_exact_matching()
         clear_stale_rokoko_list(context, set(selected), bpy)
+
     all_names = {name for plan in plans for name in plan["names"].values()}
     plugin_status = ""
     if register_names and not dry_run:
@@ -513,32 +588,48 @@ def normalize_selected(context, dry_run=DRY_RUN, register_names=REGISTER_ROKOKO_
             plugin_status = register_rokoko_names(all_names)
         except Exception as exc:
             plugin_status = "Bones normalized; Rokoko extra-name registration failed: " + str(exc)
+
     rig_count = sum(len(plan["objects"]) for plan in plans)
-    summary = "%d armatures; %d bone names %s; %d skipped." % (
-        rig_count, changes, "planned" if dry_run else "changed", len(skipped))
-    lines = ["MOTIVE / MIXAMO BONE NORMALIZATION v4", summary,
-             "Armature object names, rest poses, bone counts and transforms are preserved.",
-             "Shared actions copied: %d" % copies, plugin_status, ""]
+    summary = f"{rig_count} armatures; {changes} bone names {'planned' if dry_run else 'changed'}; {len(skipped)} skipped."
+    lines = [
+        "MOTIVE / MIXAMO BONE NORMALIZATION v5",
+        summary,
+        "Armature object names, rest poses, bone counts and transforms are preserved.",
+        f"Shared actions copied: {copies}",
+        plugin_status,
+        "",
+    ]
     for plan in plans:
         lines.append("ARMATURE: " + ", ".join(obj.name for obj in plan["objects"]))
-        lines.extend("  %s -> %s" % (old, new) for old, new in plan["names"].items())
+        lines.extend(f"  {old} -> {new}" for old, new in plan["names"].items())
         lines.extend("  NOTE: " + note for note in plan["notes"])
         if plan["unknown"]:
             lines.append("  Extra names cleaned only (no anatomical guess): " + ", ".join(plan["unknown"]))
         lines.append("")
     for name, reason in skipped:
-        lines.append("SKIPPED %s: %s" % (name, reason))
-    lines.extend(["", "Next: choose Source and Target in Rokoko; Build / Rebuild Bone List.",
-                  "Missing joints are not created. Review the mapping and both reference poses.",
-                  "Optional: change DRY_RUN at the top to preview names."])
+        lines.append(f"SKIPPED {name}: {reason}")
+    lines.extend([
+        "",
+        "Next: choose Source and Target in Rokoko; Build / Rebuild Bone List.",
+        "Missing joints are not created. Review the mapping and both reference poses.",
+        "Optional: change DRY_RUN at the top to preview names.",
+    ])
+
     report = "\n".join(lines) + "\n"
     text = bpy.data.texts.get("Bone Normalization Report") or bpy.data.texts.new("Bone Normalization Report")
     text.clear()
     text.write(report)
     context.view_layer.update()
     print(report)
-    return {"summary": summary, "plans": plans, "skipped": skipped, "changes": changes,
-            "plugin_status": plugin_status, "report": report}
+
+    return {
+        "summary": summary,
+        "plans": plans,
+        "skipped": skipped,
+        "changes": changes,
+        "plugin_status": plugin_status,
+        "report": report,
+    }
 
 
 def main():
