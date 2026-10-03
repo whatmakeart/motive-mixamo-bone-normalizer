@@ -1,4 +1,4 @@
-# Motive / Mixamo Bone Normalizer 1.0.0
+# Motive / Mixamo Bone Normalizer 1.1.0
 
 Install the ZIP without extracting it: Edit > Preferences > Add-ons > menu
 at the upper right > Install from Disk. Choose the ZIP, then enable
